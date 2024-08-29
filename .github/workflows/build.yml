@@ -1,5 +1,5 @@
 # A workflow to verify the build on every push to the master branch
-name: Build
+name: Buildtest
 
 on:
   push: 
