@@ -1,16 +1,10 @@
 name: Android Build and Deploy
 
 on:
-  push: 
+  push:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
-    inputs:
-      checkPR:
-        description: 'Check PR?'
-        required: true
-        type: boolean
-        default: false
 
 env:
   UPLOAD_ARTIFACTS: 'true' 
@@ -59,20 +53,20 @@ jobs:
         run: ./gradlew --no-daemon --stacktrace --build-cache --parallel --configure-on-demand assembleMainlineRelease assembleDevRelease assembleDevReldebug
 
       - name: Rename APKs
-        if: ${{ env.UPLOAD_ARTIFACTS == 'true' && (github.event_name == 'pull_request' || github.event.inputs.checkPR == 'true') }}
+        if: ${{ env.UPLOAD_ARTIFACTS == 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') }}
         run: |
           mv app/build/outputs/apk/dev/release/app-dev-release.apk strato-pr${{ github.event.number }}-release.apk
           mv app/build/outputs/apk/dev/reldebug/app-dev-reldebug.apk strato-pr${{ github.event.number }}-reldebug.apk
 
       - name: Upload Release APK
-        if: ${{ env.UPLOAD_ARTIFACTS == 'true' && (github.event_name == 'pull_request' || github.event.inputs.checkPR == 'true') }}
+        if: ${{ env.UPLOAD_ARTIFACTS == 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') }}
         uses: actions/upload-artifact@v4
         with:
           name: strato-pr${{ github.event.number }}-release.apk
           path: strato-pr${{ github.event.number }}-release.apk
 
       - name: Upload Debug APK
-        if: ${{ env.UPLOAD_ARTIFACTS == 'true' && (github.event_name == 'pull_request' || github.event.inputs.checkPR == 'true') }}
+        if: ${{ env.UPLOAD_ARTIFACTS == 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') }}
         uses: actions/upload-artifact@v4
         with:
           name: strato-pr${{ github.event.number }}-reldebug.apk
