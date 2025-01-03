@@ -25,6 +25,9 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.snackbar.Snackbar
 import dagger.hilt.android.AndroidEntryPoint
 import org.stratoemu.strato.adapter.*
@@ -39,9 +42,11 @@ import org.stratoemu.strato.settings.EmulationSettings
 import org.stratoemu.strato.settings.SettingsActivity
 import org.stratoemu.strato.utils.GpuDriverHelper
 import org.stratoemu.strato.utils.WindowInsetsHelper
+import org.stratoemu.strato.di.getSettings
 import javax.inject.Inject
 import kotlin.math.ceil
 import com.google.android.material.R as MaterialR
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
@@ -100,6 +105,7 @@ class MainActivity : AppCompatActivity() {
                 else -> AppCompatDelegate.MODE_NIGHT_UNSPECIFIED
             }
         )
+        setTheme(if (getSettings().useMaterialYou) R.style.AppTheme_MaterialYou else R.style.AppTheme)
         super.onCreate(savedInstanceState)
 
         setContentView(binding.root)
@@ -151,6 +157,15 @@ class MainActivity : AppCompatActivity() {
 
         window.decorView.findViewById<View>(android.R.id.content).viewTreeObserver.addOnTouchModeChangeListener { isInTouchMode ->
             refreshIconVisible = !isInTouchMode
+        }
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.CREATED) {
+                StratoApplication.themeChangeFlow.collect { themeId ->
+                    // TODO(Ishan09811): Add more material color themes
+                    recreate()
+                }
+            }
         }
     }
 
