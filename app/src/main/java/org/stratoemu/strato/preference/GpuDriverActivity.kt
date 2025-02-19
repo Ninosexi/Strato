@@ -9,13 +9,19 @@ import android.content.Intent
 import android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
 import android.os.Bundle
 import android.view.ViewTreeObserver
+import android.view.LayoutInflater
+import android.view.View
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.WindowCompat
+import androidx.core.widget.doOnTextChanged
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.viewbinding.ViewBinding
 import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import dagger.hilt.android.AndroidEntryPoint
 import org.stratoemu.strato.R
 import org.stratoemu.strato.adapter.GenericListItem
@@ -30,9 +36,18 @@ import org.stratoemu.strato.utils.GpuDriverHelper
 import org.stratoemu.strato.utils.GpuDriverInstallResult
 import org.stratoemu.strato.utils.WindowInsetsHelper
 import org.stratoemu.strato.utils.serializable
+import org.stratoemu.strato.utils.DriversFetcher
+import org.stratoemu.strato.utils.DriversFetcher.FetchResult
+import org.stratoemu.strato.utils.DriversFetcher.FetchResultOutput
+import org.stratoemu.strato.utils.DriversFetcher.DownloadResult
+import org.stratoemu.strato.StratoApplication
+import org.stratoemu.strato.getPublicFilesDir
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.io.File
+import java.io.FileInputStream
 
 /**
  * This activity is used to manage the installed gpu drivers and select one to use.
@@ -182,14 +197,164 @@ class GpuDriverActivity : AppCompatActivity() {
         binding.driverList.addItemDecoration(SpacingItemDecoration(resources.getDimensionPixelSize(R.dimen.grid_padding)))
 
         binding.addDriverButton.setOnClickListener {
-            val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                addFlags(FLAG_GRANT_READ_URI_PERMISSION)
-                type = "application/zip"
-            }
-            installCallback.launch(intent)
+            val items = arrayOf(getString(R.string.driver_import), getString(R.string.install))
+            var checkedItem = 0
+            var selectedItem: String? = items[0]
+    
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.choose)
+                .setSingleChoiceItems(items, checkedItem) { dialog, which ->
+                    selectedItem = items[which]
+                }
+                .setPositiveButton(android.R.string.ok) { dialog, _ ->
+                    if (selectedItem == getString(R.string.install)) {
+                        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                            addFlags(FLAG_GRANT_READ_URI_PERMISSION)
+                            type = "application/zip"
+                        }
+                        installCallback.launch(intent)
+                    } else {
+                        handleGpuDriverImport()
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
         }
 
         populateAdapter()
+    }
+
+    private fun handleGpuDriverImport() {
+        val inflater = LayoutInflater.from(this)
+        val inputBinding = DialogKeyboardBinding.inflate(inflater)
+        var textInputValue: String = getString(R.string.default_driver_repo_url)
+
+        inputBinding.editTextInput.setText(textInputValue)
+        inputBinding.editTextInput.doOnTextChanged { text, _, _, _ ->
+            textInputValue = text.toString()
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setView(inputBinding.root)
+            .setTitle(R.string.enter_repo_url)
+            .setPositiveButton(R.string.fetch) { _, _ ->
+                if (textInputValue.isNotEmpty()) {
+                     fetchAndShowDrivers(textInputValue)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel) {_, _ -> }
+            .show()
+    }
+
+    private fun fetchAndShowDrivers(repoUrl: String, bypassValidation: Boolean = false) {
+        lifecycleScope.launch(Dispatchers.Main) {
+            val progressDialog = MaterialAlertDialogBuilder(this@GpuDriverActivity)
+                .setTitle(R.string.fetching)
+                .setView(R.layout.dialog_progress_bar)
+                .setCancelable(false)
+                .create()
+            progressDialog.show()
+            val progressBar = progressDialog.findViewById<LinearProgressIndicator>(R.id.progress_bar)
+            val progressText = progressDialog.findViewById<TextView>(R.id.progress_text)
+            progressText?.visibility = View.GONE  
+            progressBar?.isIndeterminate = true
+            
+            val fetchOutput = DriversFetcher.fetchReleases(repoUrl, bypassValidation)         
+            progressDialog.dismiss()
+            
+            if (fetchOutput.result is FetchResult.Error) {
+                showErrorDialog(fetchOutput.result.message ?: "Something unexpected occurred while fetching $repoUrl drivers")
+                return@launch
+            }
+
+            if (fetchOutput.result is FetchResult.Warning) {
+                showWarningDialog(repoUrl, fetchOutput.result.message ?: "Something unexpected occurred while fetching $repoUrl drivers")
+                return@launch
+            }
+        
+            val releaseNames = fetchOutput.fetchedDrivers.map { it.first }
+            val releaseUrls = fetchOutput.fetchedDrivers.map { it.second }
+            var chosenUrl: String? = releaseUrls[0]
+            var chosenName: String? = releaseNames[0]
+
+            MaterialAlertDialogBuilder(this@GpuDriverActivity)
+                .setTitle(R.string.drivers)
+                .setSingleChoiceItems(releaseNames.toTypedArray(), 0) { _, which ->
+                    chosenUrl = releaseUrls[which]
+                    chosenName = releaseNames[which]
+                }
+                .setPositiveButton(R.string.driver_import) { _, _ ->
+                    downloadDriver(chosenUrl!!, chosenName!!)
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private fun downloadDriver(chosenUrl: String, chosenName: String) {
+        GlobalScope.launch(Dispatchers.Main) {
+            val progressDialog = MaterialAlertDialogBuilder(this@GpuDriverActivity)
+                .setTitle(R.string.downloading)
+                .setView(R.layout.dialog_progress_bar)
+                .setCancelable(false)
+                .create()
+                
+            progressDialog.show()
+            val progressBar = progressDialog.findViewById<LinearProgressIndicator>(R.id.progress_bar)
+            val progressText = progressDialog.findViewById<TextView>(R.id.progress_text)
+            progressText?.visibility = View.GONE  
+            progressBar?.isIndeterminate = true
+            
+            var driverFile = File("${StratoApplication.instance.getPublicFilesDir().canonicalPath}/${chosenName}.zip")
+            if (!driverFile.exists()) driverFile.createNewFile()
+            val result = DriversFetcher.downloadAsset(chosenUrl, driverFile) { downloadedBytes, totalBytes ->
+                // when using unit it stays to of this unit origin thread that's why we need to use main thread
+                GlobalScope.launch(Dispatchers.Main) {
+                    if (totalBytes > 0) {
+                        if (progressBar?.isIndeterminate ?: false) progressBar?.isIndeterminate = false
+                        if (progressText?.visibility == View.GONE) progressText?.visibility = View.VISIBLE
+                        val progress = (downloadedBytes * 100 / totalBytes).toInt()
+                        progressBar?.max = 100
+                        progressBar?.progress = progress
+                        progressText?.text = "$progress%"
+                    } else { 
+                        if (progressText?.visibility == View.VISIBLE) progressText?.visibility = View.GONE  
+                        if (!(progressBar?.isIndeterminate ?: false)) progressBar?.isIndeterminate = true
+                    }
+                }
+            }
+            progressDialog.dismiss()
+            when (result) { 
+                is DownloadResult.Success -> {
+                    val result = GpuDriverHelper.installDriver(this@GpuDriverActivity, FileInputStream(driverFile))
+                    Snackbar.make(binding.root, resolveInstallResultString(result), Snackbar.LENGTH_LONG).show()
+                    if (result == GpuDriverInstallResult.Success) populateAdapter()
+                }
+                is DownloadResult.Error -> Snackbar.make(binding.root, "Failed to import ${chosenName}: ${result.message}", Snackbar.LENGTH_SHORT).show()
+            }
+            driverFile.delete()
+        }
+    }
+
+    private fun showErrorDialog(message: String) {
+        MaterialAlertDialogBuilder(this@GpuDriverActivity)
+            .setTitle(R.string.error)
+            .setMessage(message)
+            .setPositiveButton(R.string.close, null)
+            .create()
+            .show()
+    }
+
+    private fun showWarningDialog(repoUrl: String, message: String) {
+        MaterialAlertDialogBuilder(this@GpuDriverActivity)
+            .setTitle(R.string.warning)
+            .setMessage(message)
+            .setPositiveButton(R.string.misc_continue) { _, _ ->
+                fetchAndShowDrivers(repoUrl, true)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+            .show()
     }
 
     private fun resolveInstallResultString(result : GpuDriverInstallResult) = when (result) {
