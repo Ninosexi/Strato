@@ -246,7 +246,7 @@ class GpuDriverActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun fetchAndShowDrivers(repoUrl: String) {
+    private fun fetchAndShowDrivers(repoUrl: String, bypassValidation: Boolean = false) {
         lifecycleScope.launch(Dispatchers.Main) {
             val progressDialog = MaterialAlertDialogBuilder(this@GpuDriverActivity)
                 .setTitle(R.string.fetching)
