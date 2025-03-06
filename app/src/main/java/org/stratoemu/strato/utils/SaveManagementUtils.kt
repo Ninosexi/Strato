@@ -156,7 +156,9 @@ interface SaveManagementUtils {
                     }
                     return@launch
                 }
-                Toast.makeText(context, R.string.save_exported_successfully, Toast.LENGTH_LONG).show()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, R.string.save_exported_successfully, Toast.LENGTH_LONG).show()
+                }
             }
         }
 
