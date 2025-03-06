@@ -16,7 +16,7 @@ import org.stratoemu.strato.utils.SaveManagementUtils
 
 class ImportExportSavesPreference @JvmOverloads constructor(context : Context, attrs : AttributeSet? = null, defStyleAttr : Int = androidx.preference.R.attr.preferenceStyle) : Preference(context, attrs, defStyleAttr) {
     private val documentPicker = SaveManagementUtils.registerDocumentPicker(context)
-    private val startForResultExportSave = SaveManagementUtils.registerStartForResultExportSave(context)
+    private val startForResultExportSave = SaveManagementUtils.registerStartForResultExportSave(context, "")
 
     override fun onClick() {
         val saveDataExists = SaveManagementUtils.savesFolderRootExists()
@@ -29,7 +29,7 @@ class ImportExportSavesPreference @JvmOverloads constructor(context : Context, a
         if (saveDataExists) {
             dialog.setMessage(R.string.save_data_found)
                 .setNegativeButton(R.string.export_save) { _, _ ->
-                    SaveManagementUtils.exportSave(context, startForResultExportSave, "", context.getString(R.string.global_save_data_zip_name))
+                    SaveManagementUtils.exportSave(startForResultExportSave, context.getString(R.string.global_save_data_zip_name))
                 }
         } else {
             dialog.setMessage(R.string.save_data_not_found)
