@@ -33,11 +33,13 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import java.io.FileInputStream
 
 interface SaveManagementUtils {
 
     companion object {
         private val savesFolderRoot = "${StratoApplication.instance.getPublicFilesDir().canonicalPath}/switch/nand/user/save/0000000000000000/00000000000000000000000000000001"
+        private var exportZipName: String = "export"
 
         fun registerDocumentPicker(context : Context) : ActivityResultLauncher<Array<String>> {
             return (context as ComponentActivity).registerForActivityResult(ActivityResultContracts.OpenDocument()) {
@@ -54,18 +56,25 @@ interface SaveManagementUtils {
             }
         }
 
-        fun registerStartForResultExportSave(context : Context) : ActivityResultLauncher<Intent> {
-            return (context as ComponentActivity).registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-                File(context.getPublicFilesDir().canonicalPath, "temp").deleteRecursively()
+        fun registerStartForResultExportSave(context : Context, titleId: String) : ActivityResultLauncher<String> {
+            File(context.getPublicFilesDir().canonicalPath, "temp").deleteRecursively()
+            return (context as ComponentActivity).registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+                uri?.let {
+                    exportSave(context, it, titleId)
+                }
             }
         }
-
-        fun registerStartForResultExportSave(fragmentAct : FragmentActivity) : ActivityResultLauncher<Intent> {
+        
+        fun registerStartForResultExportSave(fragmentAct : FragmentActivity, titleId: String) : ActivityResultLauncher<String> {
             val activity = fragmentAct as AppCompatActivity
             val activityResultRegistry = fragmentAct.activityResultRegistry
 
-            return activityResultRegistry.register("startForResultExportSaveKey", ActivityResultContracts.StartActivityForResult()) {
-                File(activity.getPublicFilesDir().canonicalPath, "temp").deleteRecursively()
+            File(context.getPublicFilesDir().canonicalPath, "temp").deleteRecursively()
+
+            return activityResultRegistry.register("saveExportFolderPickerKey", ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+                uri?.let {
+                    exportSave(fragmentAct as Context, it, titleId)
+                }
             }
         }
 
@@ -103,7 +112,7 @@ interface SaveManagementUtils {
                 tempFolder.mkdirs()
 
                 val saveFolder = File(saveFolderPath)
-                val outputZipFile = File(tempFolder, "$outputZipName - ${LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))}.zip")
+                val outputZipFile = File(tempFolder, "$outputZipName.zip")
                 outputZipFile.createNewFile()
                 ZipOutputStream(BufferedOutputStream(FileOutputStream(outputZipFile))).use { zos ->
                     saveFolder.walkTopDown().forEach { file ->
@@ -125,11 +134,11 @@ interface SaveManagementUtils {
          * @param titleId The title ID of the game to export the save file of. If empty, export all save files.
          * @param outputZipName The initial part of the name of the zip file to create.
          */
-        fun exportSave(context : Context, startForResultExportSave : ActivityResultLauncher<Intent>, titleId : String?, outputZipName : String) {
+        fun exportSave(context : Context, uri: Uri, titleId : String) {
             if (titleId == null) return
             CoroutineScope(Dispatchers.IO).launch {
                 val saveFolderPath = "$savesFolderRoot/$titleId"
-                val zipCreated = zipSave(saveFolderPath, outputZipName)
+                val zipCreated = zipSave(saveFolderPath, exportZipName)
                 if (zipCreated == null) {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, R.string.error, Toast.LENGTH_LONG).show()
@@ -137,12 +146,25 @@ interface SaveManagementUtils {
                     return@launch
                 }
 
+                try {
+                    context.contentResolver.openOutputStream(uri)?.use { output ->
+                        FileInputStream(zipCreated).use { it.copyTo(output) }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
                 withContext(Dispatchers.Main) {
-                    val file = DocumentFile.fromSingleUri(context, DocumentsContract.buildDocumentUri(DocumentsProvider.AUTHORITY, "${DocumentsProvider.ROOT_ID}/temp/${zipCreated.name}"))!!
-                    val intent = Intent(Intent.ACTION_SEND).setDataAndType(file.uri, "application/zip").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION).putExtra(Intent.EXTRA_STREAM, file.uri)
-                    startForResultExportSave.launch(Intent.createChooser(intent, context.getString(R.string.save_file_share)))
+                    Toast.makeText(context, R.string.save_exported_successfully, Toast.LENGTH_LONG).show()
                 }
             }
+        }
+
+        fun exportSave(startForResultExportSave : ActivityResultLauncher<String>, outputZipName : String) {
+            exportZipName = "$outputZipName - ${LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))}"
+            startForResultExportSave.launch("$exportZipName.zip")
         }
 
         /**
