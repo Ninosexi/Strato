@@ -16,7 +16,7 @@ jobs:
           submodules: recursive
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -33,5 +33,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: strato-release-apk
-          path: '**/build/outputs/apk/release/*.apk'
-        
+          path: '**/build/outputs/apk/release/*.apk'1
