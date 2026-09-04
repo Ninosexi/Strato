@@ -24,13 +24,14 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Build with Gradle
+      - name: Build with Gradle (Universal)
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease
 
-      - name: Upload APK Artifact
+      - name: Find and Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: emulator-release-apk
-          path: app/build/outputs/apk/release/*.apk
+          name: strato-release-apk
+          path: '**/build/outputs/apk/release/*.apk'
+        
